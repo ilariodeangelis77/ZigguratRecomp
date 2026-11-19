@@ -1,0 +1,107 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          suppress-deprecation-warnings: msystem-mingw64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-sdl3
+            mingw-w64-x86_64-python
+      - name: Build (release, test hooks off)
+        run: |
+          cmake -S port -B port/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZIGGURAT_TEST_HOOKS=OFF
+          cmake --build port/build
+      - name: Package
+        # tools/package.py reads the MinGW prefix from MINGW_PREFIX (set by MSYS2) and audits the zip
+        run: python -I tools/package.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config git \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev \
+            libwayland-dev libxkbcommon-dev libegl-dev libgl-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdrm-dev libgbm-dev
+      - name: Build (release, test hooks off)
+        run: |
+          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZIGGURAT_FETCH_SDL3=ON -DZIGGURAT_TEST_HOOKS=OFF \
+                -DCMAKE_BUILD_RPATH='$ORIGIN'
+          cmake --build build
+      - name: Package
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          NAME="ZigguratRecomp-${VER}-linux-x64"
+          mkdir -p "dist/${NAME}/LICENSES"
+          cp build/ZigguratLauncher build/ziggurat dist/${NAME}/
+          cp -P build/libSDL3.so* dist/${NAME}/
+          cp -r build/fonts build/strings dist/${NAME}/
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md dist/${NAME}/
+          cp port/src/engine/ENGINE_LICENSE.txt dist/${NAME}/LICENSES/flixel-ios-MIT.txt
+          cp port/third_party/fonts/OFL.txt dist/${NAME}/LICENSES/Silkscreen-OFL.txt
+          # audit: no game data may ever be packaged
+          if find "dist/${NAME}" -iname '*.ipa' -o -iname '*.wav' -o -iname '*.mp3' -o -iname 'Flixel.ttf' | grep -q .; then
+            echo "game data found in package"; exit 1; fi
+          tar -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd out
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          VER="${VER%%-*}"   # v0.9.0-rc1 -> notes of [0.9.0]
+          awk -v v="$VER" '$0 ~ "^## \\[?"v {p=1; next} /^## / && p {exit} p' CHANGELOG.md > notes.md
+          printf '\n\n**SHA-256**\n```\n' >> notes.md
+          cat out/SHA256SUMS.txt >> notes.md
+          printf '```\n\nThis project does not include any game files: you need your own copy of ZiGGURAT (iOS, 2012).\n' >> notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PRE=""
+          case "$GITHUB_REF_NAME" in *-*) PRE="--prerelease" ;; esac   # v0.9.0-rc1 -> pre-release
+          gh release create "$GITHUB_REF_NAME" out/* --title "ZiGGURAT Recomp $GITHUB_REF_NAME" --notes-file notes.md $PRE

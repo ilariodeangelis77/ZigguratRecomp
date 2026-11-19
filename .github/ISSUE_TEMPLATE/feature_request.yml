@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement for the port or the launcher
+labels: [enhancement]
+body:
+  - type: checkboxes
+    id: no-game-files
+    attributes:
+      label: Game files
+      options:
+        - label: This request does not involve sharing or distributing game files.
+          required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Changes to original gameplay are only added as optional toggles, off by default.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it useful?

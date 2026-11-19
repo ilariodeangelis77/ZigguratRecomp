@@ -1,0 +1,100 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64 (MinGW, MSYS2)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          suppress-deprecation-warnings: msystem-mingw64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-sdl3
+            mingw-w64-x86_64-python
+      - name: Configure
+        run: cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZIGGURAT_TEST_HOOKS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+      - name: Build
+        run: cmake --build build
+      - name: Unit tests
+        run: |
+          ./build/ziginputtest.exe
+          ./build/zigsteam.exe selftest
+          ./build/zigextras.exe selftest
+      - name: Dump-import tests (synthetic IPAs, no game data)
+        run: python -I tools/tests/make_fake_ipa.py build/zigimport.exe
+      - name: Records round-trip (portable temp dir)
+        run: python -I tools/tests/stats_roundtrip.py build/zigstats.exe
+      - name: Launcher strings
+        run: python -I tools/check_strings.py
+      - name: No game text in the source
+        run: python -I tools/check_game_text.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ziggurat-windows-x64
+          path: |
+            build/ZigguratLauncher.exe
+            build/ziggurat.exe
+            build/fonts/
+            build/strings/
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64 (SDL3 from source)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config git \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev \
+            libwayland-dev libxkbcommon-dev libegl-dev libgl-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdrm-dev libgbm-dev
+      - name: Configure
+        run: cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZIGGURAT_FETCH_SDL3=ON -DZIGGURAT_TEST_HOOKS=ON
+      - name: Build
+        run: cmake --build build
+      - name: Unit tests
+        env:
+          SDL_VIDEO_DRIVER: dummy
+          SDL_AUDIO_DRIVER: dummy
+        run: |
+          ./build/ziginputtest
+          ./build/zigsteam selftest
+          ./build/zigextras selftest
+      - name: Dump-import tests (synthetic IPAs, no game data)
+        run: python3 -I tools/tests/make_fake_ipa.py build/zigimport
+      - name: Records round-trip (portable temp dir)
+        run: python3 -I tools/tests/stats_roundtrip.py build/zigstats
+      - name: Launcher strings
+        run: python3 -I tools/check_strings.py
+      - name: No game text in the source
+        run: python3 -I tools/check_game_text.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ziggurat-linux-x64
+          path: |
+            build/ZigguratLauncher
+            build/ziggurat
+            build/libSDL3.so*
+            build/fonts/
+            build/strings/
+          if-no-files-found: error
