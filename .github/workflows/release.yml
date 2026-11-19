@@ -26,12 +26,14 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-sdl3
             mingw-w64-x86_64-python
+            git
       - name: Build (release, test hooks off)
         run: |
           cmake -S port -B port/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZIGGURAT_TEST_HOOKS=OFF
           cmake --build port/build
       - name: Package
-        # tools/package.py reads the MinGW prefix from MINGW_PREFIX (set by MSYS2) and audits the zip
+        # tools/package.py reads the MinGW prefix from MINGW_PREFIX (set by MSYS2), builds the pinned SDL3
+        # from source, and audits the zip (no game data; every imported DLL bundled or part of Windows)
         run: python -I tools/package.py
       - uses: actions/upload-artifact@v7
         with:

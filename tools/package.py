@@ -65,14 +65,17 @@ def release_build():
     env = dict(os.environ)
     if MINGW:
         env["PATH"] = os.path.join(MINGW, "bin") + os.pathsep + env.get("PATH", "")
+    # SDL3 is built from the pinned source (ZIGGURAT_FETCH_SDL3), not taken from MSYS2: the MSYS2
+    # package changes under us (it started linking libiconv-2.dll, which 0.9.0 then lacked).
     cfg = ["cmake", "-S", PORT, "-B", BUILD, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-           "-DZIGGURAT_TEST_HOOKS=OFF"]
+           "-DZIGGURAT_TEST_HOOKS=OFF", "-DZIGGURAT_FETCH_SDL3=ON"]
     if MINGW:
         cfg.append("-DCMAKE_PREFIX_PATH=" + MINGW)
     subprocess.run(cfg, check=True, env=env, stdout=subprocess.DEVNULL)
-    r = subprocess.run(["cmake", "--build", BUILD, "--target", "ZigguratLauncher", "ziggurat"], env=env,
+    r = subprocess.run(["cmake", "--build", BUILD, "--target", "SDL3-shared", "ZigguratLauncher", "ziggurat"], env=env,
                        capture_output=True, text=True)
-    noise = [l for l in r.stdout.splitlines() if "warning" in l.lower() or "error" in l.lower()]
+    # real diagnostics only ("file:line: warning: ..."), not file names such as SDL_error.c
+    noise = [l for l in r.stdout.splitlines() if re.search(r"\b(warning|error)\b\s*:", l, re.I)]
     if r.returncode != 0 or noise:
         print(r.stdout[-4000:])
         raise SystemExit("release build failed or produced warnings")
@@ -87,6 +90,55 @@ def runtime_file(name):
     if MINGW and os.path.exists(os.path.join(MINGW, "bin", name)):
         return os.path.join(MINGW, "bin", name)
     raise SystemExit("runtime file not found: " + name)
+
+
+def pe_imports(path):
+    """Names of the DLLs a PE file imports (import directory only; enough for MinGW output)."""
+    import struct
+    b = open(path, "rb").read()
+    pe = struct.unpack_from("<I", b, 0x3C)[0]
+    if b[pe:pe + 4] != b"PE\0\0":
+        raise SystemExit("not a PE file: " + path)
+    nsec, = struct.unpack_from("<H", b, pe + 6)
+    optsz, = struct.unpack_from("<H", b, pe + 20)
+    opt = pe + 24
+    magic, = struct.unpack_from("<H", b, opt)
+    dd = opt + (112 if magic == 0x20B else 96)
+    imp_rva, = struct.unpack_from("<I", b, dd + 8)
+    secs = [struct.unpack_from("<IIII", b, opt + optsz + i * 40 + 8) for i in range(nsec)]
+
+    def off(rva):  # (vsize, vaddr, rawsize, rawptr)
+        for vs, va, rs, rp in secs:
+            if va <= rva < va + max(vs, rs):
+                return rva - va + rp
+        raise SystemExit("bad RVA in " + path)
+    out, o = [], off(imp_rva) if imp_rva else None
+    while o is not None:
+        name_rva = struct.unpack_from("<I", b, o + 12)[0]
+        if not name_rva:
+            break
+        n = off(name_rva)
+        out.append(b[n:b.index(b"\0", n)].decode("ascii"))
+        o += 20
+    return out
+
+
+def audit_dlls(stage):
+    """Every DLL any packaged binary imports must be in the zip or be part of Windows itself."""
+    sysdir = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    have = {f.lower() for f in os.listdir(stage)}
+    missing = {}
+    for f in sorted(os.listdir(stage)):
+        if not f.lower().endswith((".exe", ".dll")):
+            continue
+        for d in pe_imports(os.path.join(stage, f)):
+            dl = d.lower()
+            if dl in have or dl.startswith(("api-ms-win-", "ext-ms-")) or os.path.exists(os.path.join(sysdir, d)):
+                continue
+            missing.setdefault(d, []).append(f)
+    if missing:
+        raise SystemExit("MISSING DLLS (not in the zip, not part of Windows): %s" % missing)
+    print("audit: every imported DLL is in the zip or part of Windows")
 
 
 def sdl3_license():
@@ -221,6 +273,7 @@ def build():
     for f in glob.glob(os.path.join(PORT, "src", "launcher", "strings", "*.json")):
         json.load(open(f, encoding="utf-8"))  # must parse
         shutil.copy2(f, os.path.join(stage, "strings"))
+    audit_dlls(stage)
     licences(os.path.join(stage, "LICENSES"))
     open(os.path.join(stage, "README.txt"), "w", encoding="utf-8", newline="\r\n").write(README.format(version=ver))
     zpath = os.path.join(dist, name + ".zip")

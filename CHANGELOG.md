@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Versions follow semantic versioning.
 
+## [0.9.1]
+### Fixed
+* Windows: the launcher would not start on PCs without MSYS2: "libiconv-2.dll was not found". The 0.9.0 zip was built against a newer system SDL3 that needs that DLL. SDL3 is now built from a pinned source version without it, and packaging fails if any needed DLL is missing from the zip.
+* Records import with "keep best": best kills, time, shots and misses now always come from the same game, as the original saves them.
+* Moon rocks: in a rare case, the spawn position was chosen differently from the original.
+
 ## [0.9.0]
 First public release.
 

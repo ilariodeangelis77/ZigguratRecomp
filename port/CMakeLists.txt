@@ -20,6 +20,10 @@ if (ZIGGURAT_FETCH_SDL3)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
   set(SDL_TESTS OFF CACHE BOOL "" FORCE)
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+  if (WIN32)
+    # MinGW has no iconv in its C runtime: SDL would link libiconv-2.dll. Use SDL's built-in one.
+    set(SDL_SYSTEM_ICONV OFF CACHE BOOL "" FORCE)
+  endif()
   FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
     GIT_TAG ${ZIGGURAT_SDL3_TAG}
