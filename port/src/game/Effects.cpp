@@ -146,7 +146,7 @@ void MoonRock::reset() {
     for (;;) {
         setX((float)randRangeFrom(0, (int)((float)FlxG::width() - getWidth())));
         double c = (double)(FlxG::width() / 2);
-        if (!((double)x >= c + (double)getWidth() * -1.5)) break;
+        if (!((double)x > c + (double)getWidth() * -1.5)) break;   // asm 0x56efc: vcmpe; ble -> exit on <=
         if (!((double)x < c + (double)getWidth() * 0.5)) break;
     }
     _toppling = false;

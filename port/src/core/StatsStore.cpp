@@ -511,14 +511,16 @@ Stats mergeStats(const Stats& a, const Stats& b, MergePolicy p) {
         double x = a.get(k), y = b.get(k);
         if (k.rfind("last", 0) == 0) r.v[k] = y != 0 || gb > 0 ? y : x;
         else if (k.rfind("average", 0) == 0) r.v[k] = (ga + gb) > 0 ? (x * ga + y * gb) / (ga + gb) : 0;
-        else if (k == "bestShots" || k == "bestMissedShots") continue;     // pair, below
+        else if (k == "bestKills" || k == "bestSeconds" || k == "bestShots" || k == "bestMissedShots")
+            continue;                                                      // one round, below
         else if (k.rfind("best", 0) == 0 || k == "ufoBestSeconds") r.v[k] = std::max(x, y);
         else r.v[k] = clampNonNeg(x) + clampNonNeg(y);                    // totals
     }
-    // bestShots/bestMissedShots belong to the same round (best accuracy row in StatState).
-    bool takeB = b.get("bestShots") > a.get("bestShots");
-    r.v["bestShots"] = takeB ? b.get("bestShots") : a.get("bestShots");
-    r.v["bestMissedShots"] = takeB ? b.get("bestMissedShots") : a.get("bestMissedShots");
+    // The original (PlayState updateStats) writes bestKills, bestSeconds, bestShots and
+    // bestMissedShots together, all from the round that set the kill record: keep them as one.
+    bool takeB = b.get("bestKills") > a.get("bestKills");
+    for (const char* k : {"bestKills", "bestSeconds", "bestShots", "bestMissedShots"})
+        r.v[k] = takeB ? b.get(k) : a.get(k);
     return r;
 }
 

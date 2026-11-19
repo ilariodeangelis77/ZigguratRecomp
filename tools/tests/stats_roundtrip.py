@@ -53,6 +53,20 @@ def main():
     b = exported(tool, os.path.join(tmp, "b.json"))
     if a != b:
         bad.append("json round-trip differs")
+    # keep-best merge: bestKills/bestSeconds/bestShots/bestMissedShots are one round (as in the
+    # original's updateStats), so the whole group comes from the side with more kills.
+    group = ("bestKills", "bestSeconds", "bestShots", "bestMissedShots")
+    rnd_a = dict(zip(group, (14, 31.25, 60, 9)))
+    rnd_b = dict(zip(group, (20, 40.5, 30, 2)))
+    for base, other, want in ((rnd_a, rnd_b, rnd_b), (rnd_b, rnd_a, rnd_b)):
+        for name, vals in (("m1.json", base), ("m2.json", other)):
+            with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                json.dump({"format": "ziggurat-stats", "version": 1, "statistics": vals}, f)
+        run(tool, "import", os.path.join(tmp, "m1.json"))
+        run(tool, "--keep-best", "import", os.path.join(tmp, "m2.json"))
+        m = exported(tool, os.path.join(tmp, "m.json"))
+        if any(abs(m.get(k, -1) - want[k]) > 1e-6 for k in group):
+            bad.append("keep-best split the best round: %s" % {k: m.get(k) for k in group})
     print("stats round-trip:", "ok" if not bad else "FAIL " + ", ".join(bad))
     shutil.rmtree(tmp, ignore_errors=True)
     return 1 if bad else 0
